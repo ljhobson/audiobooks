@@ -3,10 +3,10 @@ var spawn = require('child_process').spawn;
 var path = require('path');
 var fs = require('fs');
 
-function generateAudiobook(bookTitle, textContent, callback) {
+function generateAudiobook(bookTitle, textContent, outputName, callback) {
     var pythonExe = path.join(__dirname, '.venv', 'bin', 'python3');
     var outputFolder = path.join(__dirname, 'audiobooks', bookTitle);
-    var outputFile = path.join(outputFolder, 'ch1.mp3');
+    var outputFile = path.join(outputFolder, outputName + '.mp3');
 
     if (!fs.existsSync(outputFolder)) {
         fs.mkdirSync(outputFolder, { recursive: true });

@@ -1,6 +1,14 @@
 var express = require('express');
 var fs = require('fs');
 var path = require('path');
+
+var EPub = require('epub2').EPub;
+var htmlToText = require('html-to-text');
+
+var multer  = require('multer');
+// Save uploaded files to a temporary 'uploads' folder
+var upload = multer({ dest: 'uploads/' }); 
+
 var tts = require('./generate.js');
 var app = express();
 var port = 3000;
@@ -38,6 +46,104 @@ app.get('/api/books', function(req, res) {
 });
 
 
+
+
+// The route now uses upload.single('epubFile') as middleware
+app.post('/api/upload-book', upload.single('epubFile'), function(req, res) {
+    var uploadedFilePath = req.file.path;
+    // Now you have the file saved locally, ready to be parsed
+    console.log(uploadedFilePath + " has been uploaded.");
+    
+    parseEpubAndQueue(uploadedFilePath, req.body.title || "Unknown-Book-" + Math.floor(1000000 * Math.random()));
+    
+    res.send("Book has been fully uploaded and parsed, processing has now started.");
+});
+
+
+
+function extractCover(epub, bookTitle) {
+    // The 'cover' property in metadata is usually the ID of the image
+    var coverId = epub.metadata.cover;
+    
+    if (!coverId) {
+        console.log("No cover image found in metadata for: " + bookTitle);
+        return;
+    }
+
+    // Request the image buffer from the EPUB
+    epub.getImage(coverId, function(error, data, mimeType) {
+        if (error) {
+            console.error("Error extracting cover: " + error);
+            return;
+        }
+
+        var outputFolder = path.join(__dirname, 'audiobooks', bookTitle);
+        
+        // Ensure the folder exists
+        if (!fs.existsSync(outputFolder)) {
+            fs.mkdirSync(outputFolder, { recursive: true });
+        }
+
+        // Save the buffer to your thumbnail path
+        // Most covers are JPEGs, but saving as thumbnail.png is fine for web display
+        var thumbnailPath = path.join(outputFolder, 'thumbnail.png');
+        
+        fs.writeFile(thumbnailPath, data, function(err) {
+            if (err) console.error("Failed to save thumbnail: " + err);
+            else console.log("Thumbnail saved for: " + bookTitle);
+        });
+    });
+}
+
+
+function parseEpubAndQueue(filePath, bookTitle) {
+    var epub = new EPub(filePath);
+    
+    epub.on("end", function() {
+    	// Audiobook
+    	extractCover(epub, bookTitle);
+    
+        // epub.flow is an array of all the chapters/sections in order
+        var chapters = epub.flow;
+        var chapterIndex = 1;
+
+        function processChapter(index) {
+            if (index >= chapters.length) return; // Done parsing
+
+            var chapterId = chapters[index].id;
+            
+            // Extract the raw HTML of the chapter
+            epub.getChapter(chapterId, function(error, htmlContent) {
+                if (!error && htmlContent) {
+                    // Strip the HTML tags to get pure text for the AI
+                    var plainText = htmlToText.convert(htmlContent);
+                    
+                    // Push this specific chapter to your queue
+                    jobQueue.push({ 
+                        title: bookTitle, 
+                        outputName: "Chapter " + chapterIndex, 
+                        text: plainText 
+                    });
+                    
+                    processNextJob();
+                    
+                    chapterIndex++;
+                }
+                // Process the next chapter
+                processChapter(index + 1);
+            });
+        }
+
+        // Start processing the first chapter
+        processChapter(0);
+    });
+
+    epub.parse();
+}
+
+
+
+
 // Add this to app.js
 var jobQueue = [];
 var isProcessing = false;
@@ -55,7 +161,10 @@ function processNextJob() {
     console.log("Starting job from queue: " + nextJob.title);
 
     // We need to modify generateAudiobook to take a callback
-    tts.generateAudiobook(nextJob.title, nextJob.text, function() {
+    if (!nextJob.outputName) {
+    	nextJob.outputName = "Audio-" + Math.floor(1000000 * Math.random());
+    }
+    tts.generateAudiobook(nextJob.title, nextJob.text, nextJob.outputName, function() {
         console.log("Finished job: " + nextJob.title);
         isProcessing = false;
         processNextJob(); // Recursively call the next one
