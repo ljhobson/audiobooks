@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Audiobook Library</title>
+    <style>
+        body { font-family: "Segoe UI", sans-serif; background: #121212; color: #ffffff; margin: 0; padding: 0; }
+        #header { background: #1f1f1f; padding: 20px; border-bottom: 1px solid #333; text-align: center; }
+        #searchBar { width: 60%; padding: 12px; border-radius: 5px; border: none; background: #2a2a2a; color: white; }
+        
+        .container { width: 90%; margin: 20px auto; }
+        
+        /* Library View */
+        .book-card { 
+            display: inline-block; 
+            width: 200px; 
+            margin: 15px; 
+            vertical-align: top; 
+            cursor: pointer;
+            text-align: center;
+        }
+        .book-card img { width: 100%; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+        .book-card:hover img { opacity: 0.8; }
+        
+        /* Player View - Initially Hidden */
+        #playerView { display: none; text-align: center; }
+        #backBtn { background: #444; color: white; border: none; padding: 10px 20px; cursor: pointer; border-radius: 4px; margin-bottom: 20px; }
+        
+        .playlist { width: 300px; margin: 20px auto; text-align: left; background: #1f1f1f; padding: 10px; border-radius: 8px; }
+        .chapter-item { padding: 10px; border-bottom: 1px solid #333; cursor: pointer; }
+        .chapter-item:hover { background: #333; }
+        .active-chapter { color: #1db954; font-weight: bold; }
+
+        audio { width: 100%; max-width: 500px; margin-top: 20px; }
+    </style>
+</head>
+<body>
+
+    <div id="header">
+        <h1>AUDIOBOOKS</h1>
+        <input type="text" id="searchBar" placeholder="Search for a book..." onkeyup="filterBooks()">
+    </div>
+
+    <div class="container">
+        <div id="libraryView"></div>
+
+        <div id="playerView">
+            <button id="backBtn" onclick="showLibrary()">Back to Library</button>
+            <h2 id="currentTitle"></h2>
+            <img id="currentThumb" style="width: 250px; border-radius: 8px;">
+            <br>
+            <audio id="audioPlayer" controls></audio>
+            <div class="playlist" id="playlist"></div>
+        </div>
+    </div>
+
+    <script>
+        var allBooks = [];
+        var currentBook = null;
+        var currentChapterIndex = 0;
+
+        // Initialization
+        function loadBooks() {
+            var request = new XMLHttpRequest();
+            request.open('GET', '/api/books', true);
+            request.onload = function() {
+                if (request.status >= 200 && request.status < 400) {
+                    allBooks = JSON.parse(request.responseText);
+                    renderLibrary(allBooks);
+                }
+            };
+            request.send();
+        }
+
+        function renderLibrary(books) {
+            var library = document.getElementById('libraryView');
+            library.innerHTML = '';
+            for (var i = 0; i < books.length; i++) {
+                var book = books[i];
+                var card = document.createElement('div');
+                card.className = 'book-card';
+                card.setAttribute('onclick', 'openBook(' + i + ')');
+                card.innerHTML = '<img src="' + book.thumbnail + '"><h4>' + book.title + '</h4>';
+                library.appendChild(card);
+            }
+        }
+
+        function filterBooks() {
+            var query = document.getElementById('searchBar').value.toLowerCase();
+            var filtered = allBooks.filter(function(b) {
+                return b.title.toLowerCase().indexOf(query) > -1;
+            });
+            renderLibrary(filtered);
+        }
+
+        function openBook(index) {
+            currentBook = allBooks[index];
+            document.getElementById('libraryView').style.display = 'none';
+            document.getElementById('playerView').style.display = 'block';
+            document.getElementById('currentTitle').innerText = currentBook.title;
+            document.getElementById('currentThumb').src = currentBook.thumbnail;
+            
+            renderPlaylist();
+            playChapter(0);
+        }
+
+        function renderPlaylist() {
+            var list = document.getElementById('playlist');
+            list.innerHTML = '';
+            for (var i = 0; i < currentBook.chapters.length; i++) {
+                var item = document.createElement('div');
+                item.className = 'chapter-item';
+                item.id = 'chap-' + i;
+                item.innerText = currentBook.chapters[i].replace('.mp3', '');
+                item.setAttribute('onclick', 'playChapter(' + i + ')');
+                list.appendChild(item);
+            }
+        }
+
+        function playChapter(index) {
+            currentChapterIndex = index;
+            var player = document.getElementById('audioPlayer');
+            var path = '/audiobooks/' + currentBook.title + '/' + currentBook.chapters[index];
+            
+            player.src = path;
+            player.play();
+
+            // UI Update
+            var items = document.getElementsByClassName('chapter-item');
+            for (var i = 0; i < items.length; i++) {
+                items[i].className = 'chapter-item';
+            }
+            document.getElementById('chap-' + index).className = 'chapter-item active-chapter';
+        }
+
+        // Auto-advance logic
+        document.getElementById('audioPlayer').onended = function() {
+            if (currentChapterIndex + 1 < currentBook.chapters.length) {
+                playChapter(currentChapterIndex + 1);
+            }
+        };
+
+        function showLibrary() {
+            document.getElementById('audioPlayer').pause();
+            document.getElementById('libraryView').style.display = 'block';
+            document.getElementById('playerView').style.display = 'none';
+        }
+        
+        // Inside your frontend script
+		function requestConversion(title, text) {
+			var xhr = new XMLHttpRequest();
+			xhr.open("POST", "/api/generate", true);
+			xhr.setRequestHeader("Content-Type", "application/json");
+			xhr.send(JSON.stringify({ title: title, text: text }));
+			alert("Generation started! It will appear in your library when finished.");
+		}
+
+        loadBooks();
+    </script>
+</body>
+</html>
